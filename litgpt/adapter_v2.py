@@ -9,7 +9,7 @@ Port for LitGPT
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Type, Optional
+from typing import Any, Dict, Type, Optional, List
 
 import torch
 import torch.nn as nn
@@ -22,6 +22,7 @@ from litgpt.adapter import CausalSelfAttention as BaseCausalSelfAttention
 from litgpt.adapter import Config as BaseConfig
 from litgpt.scripts.convert_hf_checkpoint import qkv_reassemble
 from litgpt.utils import map_old_state_dict_weights
+from litgpt.kvcache.base import KVCache
 
 
 @dataclass
@@ -64,11 +65,24 @@ class AdapterV2Linear(torch.nn.Module):
 
 class GPT(BaseModel):
     # Copy & paste from :class:`model.GPT`. Note that :class:`Block` is new here.
-    def __init__(self, config: Config) -> None:
+    def __init__(
+        self,
+        config: Config,
+        kv_cache: Optional[List[KVCache]] = None
+    ) -> None:
         nn.Module.__init__(self)
         assert config.padded_vocab_size is not None
         self.config = config
 
+        if kv_cache is not None:
+            if len(kv_cache) != config.n_layer:
+                raise ValueError(f"kv_cache length {len(kv_cache)} != {config.n_layer} = config.n_layer")
+            for kvc in kv_cache:
+                self._check_kv_cache(config, kvc)
+            self._default_kv_cache = False
+        else:
+            kv_cache = [None] * config.n_layer
+            self._default_kv_cache = True
         self.lm_head = AdapterV2Linear(
             config.n_embd, config.padded_vocab_size, bias=config.lm_head_bias
         )
@@ -76,8 +90,8 @@ class GPT(BaseModel):
             dict(
                 wte=nn.Embedding(config.padded_vocab_size, config.n_embd),
                 h=nn.ModuleList(
-                    Block(config, block_idx)
-                    for block_idx in range(config.n_layer)
+                    Block(config, block_idx, kv_cache=kvc)
+                    for block_idx, kvc in enumerate(kv_cache)
                 ),
                 ln_f=config.norm_class(config.n_embd, eps=config.norm_eps),
             )
@@ -103,9 +117,14 @@ class GPT(BaseModel):
 
 
 class Block(BaseBlock):
-    def __init__(self, config: Config, block_idx: int) -> None:
-        super().__init__(config, block_idx)
-        self.attn = CausalSelfAttention(config, block_idx)
+    def __init__(
+        self,
+        config: Config,
+        block_idx: int,
+        kv_cache: Optional[KVCache] = None,
+    ) -> None:
+        super().__init__(config, block_idx, kv_cache)
+        self.attn = CausalSelfAttention(config, block_idx, kv_cache=kv_cache)
         self.mlp = config.mlp_class(config)
 
 
@@ -113,8 +132,13 @@ class CausalSelfAttention(BaseCausalSelfAttention):
     """A modification of `litgpt.adapter.CausalSelfAttention` that uses the Adapter V2 Linear class"""
 
     # Copy&paste from :class:`model.CausalSelfAttention`
-    def __init__(self, config: Config, block_idx: int) -> None:
-        super().__init__(config, block_idx)
+    def __init__(
+        self,
+        config: Config,
+        block_idx: int,
+        kv_cache: Optional[KVCache] = None,
+    ) -> None:
+        super().__init__(config, block_idx, kv_cache)
         # key, query, value projections for all heads, but in a batch
         shape = (config.n_head + 2 * config.n_query_groups) * config.head_size
         self.qkv = AdapterV2Linear(

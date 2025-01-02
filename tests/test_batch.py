@@ -5,10 +5,8 @@ from pathlib import Path
 import lightning as L
 import litgpt
 from litgpt.generate.base import (
-    next_token,
-    batched_next_token,
     batched_generate_fn,
-    generate_fn,
+    generate,
 )
 from litgpt.api import LLM, GPT
 from litgpt.scripts.download import download_from_hub
@@ -46,6 +44,7 @@ def test_batched_equivalence(tmp_path):
 
     device = "cuda:0"
     batch_size = 3
+    max_seq_length = 50
     sample_kwargs = {"top_k": 1}
 
     llm: LLM = LLM.load(
@@ -54,47 +53,33 @@ def test_batched_equivalence(tmp_path):
         init="random",
     )
     model: GPT = llm.model
-    model.set_kv_cache(batch_size=1, max_seq_length=50, device=device)
-
-    input_pos_1 = torch.tensor(
-        [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], dtype=torch.int64, device=device
-    )
-    input_pos_2 = torch.tensor([10], dtype=torch.int64, device=device)
+    model.max_seq_length = max_seq_length
 
     x = torch.tensor(
         [43993, 25, 1867, 466, 32660, 17485, 4483, 30, 198, 26410],
         device=device,
         dtype=torch.int64,
     )
+    prompts = [x] + [x[:-i] for i in range(1, batch_size)]
 
-    batch_x1 = torch.stack([x] * batch_size, dim=0)
-
-    # Single token generation baseline
-    tok_1 = next_token(model, input_pos_1, x.unsqueeze(0), **sample_kwargs)
-    tok_2 = next_token(model, input_pos_2, tok_1.unsqueeze(0), **sample_kwargs)
-
-    assert tok_1.ndim == 1
-    assert tok_2.ndim == 1
-    assert tok_1.size(0) == 1
-    assert tok_2.size(0) == 1
-
-    # Switch to batched generation
-    model.clear_kv_cache()
-    model.set_kv_cache(batch_size=batch_size, max_seq_length=50, device="cuda:0")
-
-    toks_1: torch.Tensor = batched_next_token(
-        model, input_pos_1, batch_x1, sample_kwargs
+    res_batch = generate.generate(
+        model=model,
+        prompts=prompts,
+        max_returned_tokens=max_seq_length,
+        **sample_kwargs,
     )
-    toks_2: torch.Tensor = batched_next_token(model, input_pos_2, toks_1, sample_kwargs)
+    res_single = [
+        generate.generate(
+            model=model,
+            prompts=[prompt],
+            max_returned_tokens=max_seq_length,
+            **sample_kwargs,
+        )[0]
+        for prompt in prompts
+    ]
 
-    assert toks_1.ndim == 2
-    assert toks_2.ndim == 2
-    assert toks_1.size(0) == batch_size
-    assert toks_2.size(0) == batch_size
-
-    # Assert that single and batched next token generation are equivalent
-    assert all(t == tok_1 for t in toks_1), f"{tok_1} != {toks_1}"
-    assert all(t == tok_2 for t in toks_2), f"{tok_2} != {toks_2}"
+    for rb, rs in zip(res_batch, res_single):
+        torch.testing.assert_close(rs, rb)
 
 
 @RunIf(min_cuda_gpus=1)
@@ -148,15 +133,15 @@ def test_batch_generate(tmp_path):
     sample_kwargs = {"top_k": 1}
     llm, model = create_llm(tmp_path, batch_size, 50, device)
 
-    batch_x = torch.tensor(
-        [
+    kwargs = dict(device=device, dtype=torch.int64)
+    batch_x = [
+        torch.tensor(lst, **kwargs)
+        for lst in [
             [43993, 25, 1867, 466, 32660, 17485, 4483, 30, 198, 26410],
             [25, 1867, 466, 32660, 17485, 4483, 30, 198, 26410, 7596],
             [1867, 466, 32660, 17485, 4483, 30, 198, 26410, 7596, 7596],
-        ],
-        device=device,
-        dtype=torch.int64,
-    )
+        ]
+    ]
 
     # Generate tokens
     tokens = []
@@ -164,6 +149,7 @@ def test_batch_generate(tmp_path):
         model,
         prompts=batch_x,
         max_returned_tokens=50,
+        prompt_chunksize=1,
         sample_args=sample_kwargs,
         include_prompt=True,
         include_eos=False,
@@ -229,6 +215,7 @@ def test_batch_generate(tmp_path):
         model,
         prompts=batch_x,
         max_returned_tokens=50,
+        prompt_chunksize=1,
         stop_tokens=[(s,) for s in stops],
         sample_args=sample_kwargs,
         include_prompt=True,
@@ -258,10 +245,6 @@ def test_batch_generate(tmp_path):
 
     torch.use_deterministic_algorithms(False)
 
-    # for t in llm.tokenizer.decode_stream([torch.tensor(i) for i in first_stream]):
-    #    print(t, end="", flush=True)
-    # print()
-
 
 @RunIf(min_cuda_gpus=1)
 def test_batch_generate_equivalence(tmp_path):
@@ -273,15 +256,15 @@ def test_batch_generate_equivalence(tmp_path):
     sample_kwargs = {"top_k": 1}
     llm, model = create_llm(tmp_path, batch_size, 50, device)
 
-    batch_x = torch.tensor(
-        [
+    kwargs = dict(device=device, dtype=torch.int64)
+    batch_x = [
+        torch.tensor(lst, **kwargs)
+        for lst in [
             [43993, 25, 1867, 466, 32660, 17485, 4483, 30, 198, 26410],
             [25, 1867, 466, 32660, 17485, 4483, 30, 198, 26410, 7596],
             [1867, 466, 32660, 17485, 4483, 30, 198, 26410, 7596, 7596],
-        ],
-        device=device,
-        dtype=torch.int64,
-    )
+        ]
+    ]
 
     # The other test tests the stop_tokens functionality much more exhaustively, we'll just generate and compare 50 tokens here.
 
@@ -290,6 +273,7 @@ def test_batch_generate_equivalence(tmp_path):
         model,
         prompts=batch_x,
         max_returned_tokens=50,
+        prompt_chunksize=1,
         sample_args=sample_kwargs,
         include_prompt=False,
         include_eos=False,
@@ -302,14 +286,16 @@ def test_batch_generate_equivalence(tmp_path):
     llm, model = create_llm(tmp_path, batch_size, 50, device)
 
     tokens = []
-    for t in generate_fn(
-        model,
-        prompt=batch_x[0],
+    for part in batched_generate_fn(
+        model=model,
+        prompts=[batch_x[0]],
         max_returned_tokens=50,
+        prompt_chunksize=1,
+        sample_args=sample_kwargs,
         include_prompt=False,
         include_eos=False,
-        **sample_kwargs,
     ):
+        t = part[0]
         if t.size(0) == 1:
             tokens.append(t.item())
         else:

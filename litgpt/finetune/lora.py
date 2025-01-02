@@ -428,8 +428,12 @@ def generate_example(fabric: L.Fabric, model: GPT, tokenizer: Tokenizer, eval: E
             # do not set `max_seq_length=max_returned_token` because memory is not a concern here
             model.set_kv_cache(batch_size=1)
         output = generate(
-            model, encoded, max_returned_tokens=max_returned_tokens, temperature=0.8, eos_id=tokenizer.eos_id
-        )
+            model=model,
+            prompts=[encoded],
+            max_returned_tokens=max_returned_tokens,
+            temperature=0.8,
+            eos_id=tokenizer.eos_id,
+        )[0]
         model.clear_kv_cache()
         model.train()
         output = tokenizer.decode(output)

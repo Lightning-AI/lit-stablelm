@@ -31,6 +31,7 @@ def generate(
     prompt: torch.Tensor,
     max_returned_tokens: int,
     *,
+    prompt_chunksize: int = 1,
     temperature: float = 1.0,
     top_k: Optional[int] = None,
     top_p: float = 1.0,
@@ -60,35 +61,60 @@ def generate(
             or https://huyenchip.com/2024/01/16/sampling.html#top_p
         stop_tokens: If specified, stop generating any more token once one of this list is generated.
     """
-    from litgpt.generate.base import generate_fn
-    return generate_fn(
-        include_prompt=False,
-        include_eos=False,
-        model=model,
-        prompt=prompt,
-        max_returned_tokens=max_returned_tokens,
-        temperature=temperature,
-        top_k=top_k,
-        top_p=top_p,
-        stop_tokens=stop_tokens
+    from litgpt.generate.base import batched_generate_fn
+
+    return map(
+        lambda lst: lst[0],
+        batched_generate_fn(
+            model=model,
+            prompts=[prompt],
+            max_returned_tokens=max_returned_tokens,
+            prompt_chunksize=prompt_chunksize,
+            sample_args = dict(
+                temperature=temperature,
+                top_k=top_k,
+                top_p=top_p,
+            ),
+            stop_tokens=stop_tokens,
+            include_prompt=False,
+            include_eos=False,
+        )
     )
 
 
-def process_prompt(prompt, model, tokenizer, prompt_style, fabric, temperature, max_new_tokens, top_k, top_p, stop_tokens):
+def process_prompt(
+    prompt: str,
+    model: GPT,
+    tokenizer,
+    prompt_style,
+    fabric,
+    max_new_tokens: int,
+    prompt_chunksize: int,
+    temperature: float,
+    top_k: Optional[int],
+    top_p: float,
+    stop_tokens: Tuple[List[int], ...],
+):
     prompt = prompt_style.apply(prompt=prompt)
     encoded_prompt = tokenizer.encode(prompt, device=fabric.device)
 
     if max_new_tokens is None:
         max_returned_tokens = model.max_seq_length
     else:
-        first_turn = model.mask_cache is None
         max_returned_tokens = encoded_prompt.size(0) + max_new_tokens
-        if first_turn or max_returned_tokens > model.max_seq_length:
+        msl = model.max_seq_length
+        if max_returned_tokens > msl or model.config.block_size == msl:
             model.max_seq_length = max_returned_tokens
-            model.set_kv_cache(batch_size=1, device=fabric.device)
 
     y: Iterator[torch.Tensor] = generate(
-        model, encoded_prompt, max_returned_tokens, temperature=temperature, top_k=top_k, top_p=top_p, stop_tokens=stop_tokens
+        model=model,
+        prompt=encoded_prompt,
+        max_returned_tokens=max_returned_tokens,
+        prompt_chunksize=prompt_chunksize,
+        temperature=temperature,
+        top_k=top_k,
+        top_p=top_p,
+        stop_tokens=stop_tokens,
     )
     token_generator: Iterator[str] = tokenizer.decode_stream(y, device=fabric.device)
 
@@ -103,8 +129,7 @@ def process_prompt(prompt, model, tokenizer, prompt_style, fabric, temperature, 
 
     t = time.perf_counter() - t0
 
-    for block in model.transformer.h:
-        block.attn.kv_cache.reset_parameters()
+    model.clear_kv_cache()
     fabric.print(
         f"\nTime for inference: {t:.02f} sec total, {tokens_generated / t:.02f} tokens/sec,"
         f" {tokens_generated} tokens",
@@ -113,7 +138,19 @@ def process_prompt(prompt, model, tokenizer, prompt_style, fabric, temperature, 
     fabric.print()
 
 
-def interact(multiline, model, tokenizer, prompt_style, fabric, temperature, max_new_tokens, top_k, top_p, stop_tokens):
+def interact(
+    multiline: bool,
+    model: GPT,
+    tokenizer,
+    prompt_style,
+    fabric,
+    max_new_tokens: int,
+    prompt_chunksize: int,
+    temperature: float,
+    top_k: Optional[int],
+    top_p: float,
+    stop_tokens: Tuple[List[int], ...],
+):
     while True:
         try:
             if not multiline:
@@ -135,7 +172,19 @@ def interact(multiline, model, tokenizer, prompt_style, fabric, temperature, max
         if not prompt or prompt in ("!quit", "!exit"):
             break
 
-        process_prompt(prompt, model, tokenizer, prompt_style, fabric, temperature, max_new_tokens, top_k, top_p, stop_tokens)
+        process_prompt(
+            prompt=prompt,
+            model=model,
+            tokenizer=tokenizer,
+            prompt_style=prompt_style,
+            fabric=fabric,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            prompt_chunksize=prompt_chunksize,
+            top_k=top_k,
+            top_p=top_p,
+            stop_tokens=stop_tokens,
+        )
 
 
 @torch.inference_mode()
@@ -143,6 +192,7 @@ def main(
     checkpoint_dir: Path,
     *,
     max_new_tokens: int = 50,
+    prompt_chunksize: int = 1,
     top_k: Optional[int] = 50,
     top_p: float = 1.0,
     temperature: float = 0.8,
@@ -158,6 +208,11 @@ def main(
         checkpoint_dir: A local path to a directory containing the model weights or a valid model name.
             You can get a list of valid model names via the `litgpt download list` command line argument.
         max_new_tokens: The number of generation steps to take.
+        prompt_chunksize: If even the shortest prompt is longer than the KV
+            cache, prompts are processed in chunks of this size in the
+            prefill phase. Once the shortest has been processed to the
+            end, we proceed with chunk size 1.
+            Defaults to 1, but larger values are recommended for long prompts.
         top_k: The number of top most probable tokens to consider in the sampling process.
         top_p: If specified, it represents the cumulative probability threshold to consider in the sampling process.
             In top-p sampling, the next token is sampled from the highest probability tokens
@@ -252,8 +307,9 @@ def main(
         tokenizer=tokenizer,
         prompt_style=prompt_style,
         fabric=fabric,
-        temperature=temperature,
         max_new_tokens=(None if compile else max_new_tokens),
+        prompt_chunksize=prompt_chunksize,
+        temperature=temperature,
         top_k=top_k,
         top_p=top_p,
         stop_tokens=stop_tokens
