@@ -45,7 +45,7 @@ def test_tokenizer_against_hf(config):
             (checkpoint_dir / file).symlink_to(hf_file)
 
     theirs = AutoTokenizer.from_pretrained(
-        repo_id, cache_dir=cache_dir / "hf", local_files_only=True, token=access_token
+        repo_id, cache_dir=cache_dir / "hf", local_files_only=True, token=access_token, trust_remote_code=True
     )
     ours = Tokenizer(checkpoint_dir)
 

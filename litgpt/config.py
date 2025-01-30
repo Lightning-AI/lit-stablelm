@@ -1804,6 +1804,57 @@ configs.append(
 
 
 ############
+# OpenCoder
+############
+opencoder = [
+    # https://huggingface.co/infly/OpenCoder-8B-Base/blob/main/config.json
+    dict(
+        name="OpenCoder-8B{}",
+        hf_config=dict(org="infly", name="OpenCoder-8B{}"),
+        n_embd=4096,
+        block_size=8192,
+        vocab_size=96640,
+        padded_vocab_size=96640,
+        n_layer=32,
+        n_head=32,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=14336,
+        rope_base=500000,
+    ),
+    # https://huggingface.co/infly/OpenCoder-1.5B-Base/blob/main/config.json
+    dict(
+        name="OpenCoder-1.5B{}",
+        hf_config=dict(org="infly", name="OpenCoder-1.5B{}"),
+        n_embd=2240,
+        block_size=4096,
+        vocab_size=96640,
+        padded_vocab_size=96640,
+        n_layer=24,
+        n_head=14,
+        n_query_groups=14,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        norm_class_name="RMSNorm",
+        mlp_class_name="LLaMAMLP",
+        intermediate_size=6144,
+        rope_base=10000,
+    )
+]
+for c in opencoder:
+    for kind in ("-Base", "-Instruct"):
+        copy = deepcopy(c)
+        copy["name"] = c["name"].format(kind)
+        copy["hf_config"]["name"] = c["hf_config"]["name"].format(kind)
+        configs.append(copy)
+
+
+############
 # TinyLlama
 ############
 tiny_llama = [

@@ -32,6 +32,7 @@ LitGPT supports a variety of LLM architectures with publicly available weights. 
 | Nous-Hermes | 7B, 13B, 70B | NousResearch | [Org page](https://huggingface.co/NousResearch)                                                                          |
 | OLMo | 1B, 7B | Allen Institute for AI (AI2) | [Groeneveld et al. 2024](https://aclanthology.org/2024.acl-long.841/)     |
 | OpenLLaMA | 3B, 7B, 13B | OpenLM Research | [Geng & Liu 2023](https://github.com/openlm-research/open_llama)                                                         |
+| OpenCoder | 1.5B, 8B | Infly | [Huang et al. 2024](https://opencoder-llm.github.io/)                                                         |
 | Phi 1.5 & 2 | 1.3B, 2.7B | Microsoft Research  | [Li et al. 2023](https://arxiv.org/abs/2309.05463)                                                                          |
 | Phi 3 & 3.5 | 3.8B | Microsoft Research | [Abdin et al. 2024](https://arxiv.org/abs/2404.14219)
 | Phi 4 | 14B | Microsoft Research | [Abdin et al. 2024](https://arxiv.org/abs/2412.08905)                                                                            |
@@ -134,6 +135,10 @@ HuggingFaceTB/SmolLM2-360M
 HuggingFaceTB/SmolLM2-360M-Instruct
 HuggingFaceTB/SmolLM2-1.7B
 HuggingFaceTB/SmolLM2-1.7B-Instruct
+infly/OpenCoder-1.5B-Base
+infly/OpenCoder-1.5B-Instruct
+infly/OpenCoder-8B-Base
+infly/OpenCoder-8B-Instruct
 lmsys/longchat-13b-16k
 lmsys/longchat-7b-16k
 lmsys/vicuna-13b-v1.3
