@@ -5,6 +5,7 @@ from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 import importlib.util
 from pathlib import Path
+import shutil
 from typing import List, Optional, Tuple
 
 import torch
@@ -62,7 +63,40 @@ def download_from_hub(
 
     download_files = ["tokenizer*", "generation_config.json", "config.json"]
     if not tokenizer_only:
-        bins, safetensors = find_weight_files(repo_id, access_token)
+        bins, safetensors, info = find_weight_files(repo_id, access_token)
+
+        total_weight_size_bytes = 0
+        if bins:
+            total_weight_size_bytes = sum(
+                (file.size or 0)
+                for file in info.siblings
+                if file.rfilename.endswith(".bin") or file.rfilename.endswith(".bin.index.json")
+            )
+        elif safetensors:
+            total_weight_size_bytes = sum(
+                (file.size or 0)
+                for file in info.siblings
+                if file.rfilename.endswith(".safetensors")
+            )
+        else:
+            raise ValueError(f"Couldn't find weight files for {repo_id}")
+
+        weight_size_gb = total_weight_size_bytes / (1024**3)
+        free_space_bytes = shutil.disk_usage(str(checkpoint_dir)).free
+        free_space_gb = free_space_bytes / (1024**3)
+
+        # 2x because we create lit_model.pth before deleting the downloaded weights,
+        # so we intermittenly have 2 sets of weights on disk
+        if weight_size_gb > 2*free_space_gb:
+            if os.getenv("LIGHTNING_CLOUD_SPACE_ID") is not None:
+                studio_text = " Please switch to a larger Studio with more disk space."
+            else:
+                studio_text = ""
+            raise RuntimeError(
+                f"Not enough disk space to download {repo_id} weights. "
+                f"Needed: ~{2*weight_size_gb:.2f} GB, free: ~{free_space_gb:.2f} GB.{studio_text}"
+            )
+
         if bins:
             # covers `.bin` files and `.bin.index.json`
             download_files.append("*.bin*")
@@ -104,11 +138,11 @@ def find_weight_files(repo_id: str, access_token: Optional[str]) -> Tuple[List[s
     from huggingface_hub.utils import filter_repo_objects
 
     with gated_repo_catcher(repo_id, access_token):
-        info = repo_info(repo_id, token=access_token)
+        info = repo_info(repo_id, token=access_token, files_metadata=True)
     filenames = [f.rfilename for f in info.siblings]
     bins = list(filter_repo_objects(items=filenames, allow_patterns=["*model*.bin*"]))
     safetensors = list(filter_repo_objects(items=filenames, allow_patterns=["*.safetensors*"]))
-    return bins, safetensors
+    return bins, safetensors, info
 
 
 @contextmanager
