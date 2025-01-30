@@ -147,7 +147,7 @@ def setup(
                 " when using the --quantize flag."
             )
         strategy = FSDPStrategy(
-            auto_wrap_policy={Block},
+            auto_wrap_policy={torch.nn.Linear},
             activation_checkpointing_policy={Block},
             state_dict_type="full",
             limit_all_gathers=True,
