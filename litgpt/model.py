@@ -263,7 +263,7 @@ class Block(nn.Module):
                 " (non-parallel residual and shared attention norm)."
             )
 
-        self.norm_1 = config.norm_class(config.n_embd, eps=config.norm_eps)
+        self.norm_1 = None if not config.input_norm else config.norm_class(config.n_embd, eps=config.norm_eps)
         self.attn = CausalSelfAttention(config, block_idx)
         self.post_attention_norm = (
             config.norm_class(config.n_embd, eps=config.norm_eps) if config.post_attention_norm else nn.Identity()
@@ -306,7 +306,11 @@ class Block(nn.Module):
         └───► +
         """
 
-        x_normed = self.norm_1(x)
+        if self.norm_1 is not None:
+            x_normed = self.norm_1(x)
+        else:
+            x_normed = x
+
         attention_output = self.attn(
             x_normed, cos, sin, mask, input_pos, input_pos_maxp1
         )
@@ -342,11 +346,12 @@ class CausalSelfAttention(nn.Module):
             block_idx % config.sliding_window_layer_stride == 0
         )
 
+
+        self.q_norm = None
+        self.k_norm = None
         if config.norm_qk:
-            self.norm_q = config.norm_class(config.head_size * config.n_head, eps=config.norm_eps)
-            self.norm_k = config.norm_class(config.head_size * config.n_query_groups, eps=config.norm_eps)
-        else:
-            self.norm_q = self.norm_k = None
+            self.q_norm = config.norm_class(config.head_size * config.n_head, eps=config.norm_eps)
+            self.k_norm = config.norm_class(config.head_size * config.n_query_groups, eps=config.norm_eps)
 
         self.config = config
         self.block_idx = block_idx
@@ -385,8 +390,8 @@ class CausalSelfAttention(nn.Module):
         q, k, v = qkv.split((query_size, key_size, value_size), dim=-1)  # 3x(B, T, C*)
 
         if self.config.norm_qk:
-            q = self.norm_q(q)
-            k = self.norm_k(k)
+            q = self.q_norm(q)
+            k = self.k_norm(k)
 
         # To place the num_heads (nh) dimension right after the batch (B) dimension, the first step is to decouple the
         # embedding size (C) into num_heads (nh) and head_size (hs).
