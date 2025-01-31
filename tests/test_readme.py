@@ -41,6 +41,7 @@ def test_download_model():
     s = Path("checkpoints") / repo_id
     assert f"Saving converted checkpoint to {str(s)}" in output
     assert ("checkpoints" / REPO_ID).exists()
+    assert ("checkpoints" / REPO_ID / "pytorch_model.bin").exists(), f"{REPO_ID} not downloaded"
 
     # Also test valid but unsupported repo IDs
     command = ["litgpt", "download", "CohereForAI/aya-23-8B"]
@@ -177,18 +178,30 @@ def test_continue_pretrain_model(tmp_path):
 def test_serve():
     CHECKPOINT_DIR = str("checkpoints" / REPO_ID)
     run_command = [
-        "litgpt", "serve", str(CHECKPOINT_DIR)
+        "litgpt", "serve", "--devices", "0", str(CHECKPOINT_DIR)
     ]
 
     process = None
 
     def run_server():
         nonlocal process
+
+        stdout, stderr = ""
         try:
+            print (f"Running command {run_command}")
             process = subprocess.Popen(run_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            stdout, stderr = process.communicate(timeout=60)
-        except subprocess.TimeoutExpired:
+            stdout, stderr = process.communicate(timeout=90)
+            print (f"stdout : {stdout}")
+            print(f"stderr : {stderr}")
+        except subprocess.TimeoutExpired as te:
             print('Server start-up timeout expired')
+            raise te
+        except Exception as e:
+            print (e)
+            raise e
+        finally:
+            print (f"stdout : {stdout}")
+            print(f"stderr : {stderr}")
 
     server_thread = threading.Thread(target=run_server)
     server_thread.start()
@@ -199,7 +212,11 @@ def test_serve():
     try:
         response = requests.get("http://127.0.0.1:8000")
         print(response.status_code)
+        print (response.text)
         assert response.status_code == 200, "Server did not respond as expected."
+    except Exception as e:
+            print (e)
+            raise e
     finally:
         if process:
             process.kill()
