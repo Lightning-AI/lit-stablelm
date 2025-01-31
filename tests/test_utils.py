@@ -122,6 +122,12 @@ def test_incremental_write(tmp_path):
     for k, v_expected in sd_expected.items():
         v_actual = sd_actual[k]
         torch.testing.assert_close(v_expected, v_actual)
+    sd_actual = torch.load(fn, weights_only=True)
+    assert sd_actual.keys() == sd_expected.keys()
+    assert sd_actual["0"].someattr == 1  # requires PyTorch 2.0+
+    for k, v_expected in sd_expected.items():
+        v_actual = sd_actual[k]
+        torch.testing.assert_close(v_expected, v_actual)
 
 
 @pytest.mark.parametrize("B", (1, 2))

@@ -168,12 +168,12 @@ class SavingProxyForTensor:
         if reduce_args[0] == torch._utils._rebuild_tensor_v2:
             # for Tensors with Python attributes
             (a0, a1, (storage, *a2_other), *other_reduce_args) = reduce_args
-            assert isinstance(storage, torch.storage.TypedStorage), "Please check for updates"
+            assert isinstance(storage, (torch.storage.TypedStorage, torch.storage.UntypedStorage)), "Please check for updates"
             storage_proxy = SavingProxyForStorage(storage, saver, protocol_version=protocol_version)
             self.reduce_args = (a0, a1, (storage_proxy, *a2_other), *other_reduce_args)
         else:
             (storage, *other_reduce_args) = reduce_args
-            assert isinstance(storage, torch.storage.TypedStorage), "Please check for updates"
+            assert isinstance(storage, (torch.storage.TypedStorage, torch.storage.UntypedStorage)), "Please check for updates"
             storage_proxy = SavingProxyForStorage(storage, saver, protocol_version=protocol_version)
             self.reduce_args = (storage_proxy, *other_reduce_args)
 
@@ -245,13 +245,14 @@ class incremental_save:
         self.zipfile = torch._C.PyTorchFileWriter(str(name))
         self.has_saved = False
         self.next_key = 0
+        self.protocol_version = 2
 
     def __enter__(self):
         return self
 
     def store_early(self, tensor):
         if isinstance(tensor, torch.Tensor):
-            return SavingProxyForTensor(tensor, self)
+            return SavingProxyForTensor(tensor, self, protocol_version=self.protocol_version)
         raise TypeError(f"can only store tensors early, not {type(tensor)}")
 
     def save(self, obj):
@@ -259,7 +260,7 @@ class incremental_save:
             raise RuntimeError("have already saved")
         # Write the pickle data for `obj`
         data_buf = BytesIO()
-        pickler = IncrementalPyTorchPickler(self, data_buf, protocol=5)
+        pickler = IncrementalPyTorchPickler(self, data_buf, protocol=self.protocol_version)
         pickler.dump(obj)
         data_value = data_buf.getvalue()
         self.zipfile.write_record("data.pkl", data_value, len(data_value))
