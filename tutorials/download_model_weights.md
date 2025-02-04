@@ -39,6 +39,7 @@ LitGPT supports a variety of LLM architectures with publicly available weights. 
 | Pythia | {14,31,70,160,410}M, {1,1.4,2.8,6.9,12}B | EleutherAI | [Biderman et al. 2023](https://arxiv.org/abs/2304.01373)                                            |
 | Qwen2.5 | 0.5B, 1.5B, 3B, 7B, 14B, 32B, 72B | Alibaba Group | [Qwen Team 2024](https://qwenlm.github.io/blog/qwen2.5/)                                               |
 | Qwen2.5 Coder | 0.5B, 1.5B, 3B, 7B, 14B, 32B | Alibaba Group | [Hui, Binyuan et al. 2024](https://arxiv.org/abs/2409.12186)                                          |
+| Qwen2.5 1M (Long Context) | 7B, 14B | Alibaba Group | [Qwen Team 2025](https://qwenlm.github.io/blog/qwen2.5-1m/)                                          |
 | Qwen2.5 Math | 1.5B, 7B, 72B | Alibaba Group | [An, Yang et al. 2024](https://arxiv.org/abs/2409.12122)                                          |
 | QwQ | 32B | Alibaba Group | [Qwen Team 2024](https://qwenlm.github.io/blog/qwq-32b-preview/)                                                                         |
 | R1 Distll Llama | 8B, 70B | DeepSeek AI | [DeepSeek AI 2025](https://github.com/deepseek-ai/DeepSeek-R1/blob/main/DeepSeek_R1.pdf)                                                                         |
@@ -197,8 +198,10 @@ Qwen/Qwen2.5-3B
 Qwen/Qwen2.5-3B-Instruct
 Qwen/Qwen2.5-7B
 Qwen/Qwen2.5-7B-Instruct
+Qwen/Qwen2.5-7B-Instruct-1M
 Qwen/Qwen2.5-14B
 Qwen/Qwen2.5-14B-Instruct
+Qwen/Qwen2.5-14B-Instruct-1M
 Qwen/Qwen2.5-32B
 Qwen/Qwen2.5-32B-Instruct
 Qwen/Qwen2.5-72B
