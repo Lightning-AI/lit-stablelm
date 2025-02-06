@@ -160,8 +160,7 @@ def test_adapter_v2_compile():
 
     model = AdapterV2GPT(model.config)
     model.set_kv_cache(2)
-    input_pos = torch.arange(model.config.block_size)
-    explanation = torch._dynamo.explain(model)(x, input_pos)
+    explanation = torch._dynamo.explain(model)(x, for_prefill=True)
     assert isinstance(explanation, debugging.ExplainOutput)
     assert explanation.graph_count == 1
     assert explanation.graph_break_count == 0

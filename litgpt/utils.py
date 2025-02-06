@@ -815,3 +815,53 @@ def select_sft_generate_example(eval, data):
     else:
         raise ValueError(f"Unknown evaluation example type: {eval.evaluate_example}")
     return instruction
+
+
+def batched_index_copy_(t, dim, idx, val):
+    """Index copy for batched t, idx, val"""
+
+    if t.device.type == "mps":
+        # Normalize negative dimensions
+        if dim < 0:
+            dim = t.dim() + dim
+        if idx.dim() == 1:
+            idx_shape = [1] * val.dim()
+            idx_shape[dim] = -1
+            idx_expanded = idx.view(*idx_shape)
+            idx_expanded = idx_expanded.expand_as(val)
+            t.scatter_(dim, idx_expanded, val)
+            return t
+
+        elif idx.dim() == 2:
+            assert dim != 0, "Cannot index the batch dimension"
+            batch_size = idx.size(0)
+            idx_size = idx.size(1)
+            assert batch_size == t.size(0) == val.size(0)
+
+            idx_shape = [batch_size] + [1] * (val.dim() - 1)
+            idx_shape[dim] = idx_size
+            idx_expanded = idx.view(*idx_shape)
+            idx_expanded = idx_expanded.expand_as(val)
+
+            t.scatter_(dim, idx_expanded, val)
+            return t
+        else:
+            raise NotImplementedError(f"idx.dim() == {idx.dim()} not supported")
+
+    else:
+        if idx.dim() == 1:
+            return t.index_copy_(dim, idx, val)
+
+        assert idx.dim() == 2, f"multiple batch dims not yet {idx.shape=}"
+        assert dim != 0, f"cannot index batch dim {dim=}"
+        batch_size, idx_size = idx.shape
+        assert batch_size == t.size(0)
+        assert batch_size == val.size(0)
+
+        # if we can view the batch and indexed dimensions together, we could
+        # do index trickery. This is, sadly, not the case for kvcache so we
+        # fall back to for loop
+        for i in range(batch_size):
+            unbatched_dim = dim if dim < 0 else dim - 1
+            t[i].index_copy_(unbatched_dim, idx[i], val[i])
+        return t

@@ -110,6 +110,7 @@ def _test_model_1device(accelerator):
     fabric = Fabric(accelerator=accelerator, devices=1)
     with torch.device("meta"):
         model = GPT.from_name("pythia-14m", n_layer=2)
+        model.set_kv_cache(1)
     model = sequential(model, fabric.device, 15, 1)
 
     device_str = str(fabric.device)
