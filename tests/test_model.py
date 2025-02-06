@@ -1038,6 +1038,66 @@ def test_against_hf_falcon3(model_name, device, dtype):
     torch.testing.assert_close(ours_y, theirs_y)
 
 
+@torch.inference_mode()
+@pytest.mark.parametrize(
+    "ours_kwargs",
+    [
+        {"name": "OpenCoder-1.5B-Base"},
+        {"name": "OpenCoder-8B-Instruct"},
+    ],
+)
+@pytest.mark.parametrize(
+    ("device", "dtype"),
+    [
+        (torch.device("cpu"), torch.float32),
+        pytest.param(
+            torch.device("cuda"),
+            torch.float16,
+            marks=[
+                # the reference does softmax upscaled to fp32 during attention. additionally, the final layernorm input
+                # is slightly different
+                pytest.mark.xfail(raises=AssertionError, strict=False),
+                RunIf(min_cuda_gpus=1),
+            ],
+        ),
+    ],
+)
+def test_against_original_opencoder(ours_kwargs, device, dtype):
+    torch.set_default_dtype(dtype)
+
+    ours_config = Config.from_name(
+        padded_vocab_size=10000, n_query_groups=2, n_layer=2, n_head=8, n_embd=32, intermediate_size=86, **ours_kwargs
+    )
+    T = 5
+    theirs_config = LlamaConfig(
+        vocab_size=ours_config.padded_vocab_size,
+        hidden_size=ours_config.n_embd,
+        num_attention_heads=ours_config.n_head,
+        num_hidden_layers=ours_config.n_layer,
+        intermediate_size=ours_config.intermediate_size,
+        max_position_embeddings=T,
+        rms_norm_eps=ours_config.norm_eps,
+        num_key_value_heads=ours_config.n_query_groups,
+        rope_theta=ours_config.rope_base,
+        attention_bias=ours_config.bias,
+    )
+    assert ours_config.intermediate_size == theirs_config.intermediate_size
+
+    theirs_model = LlamaForCausalLM(theirs_config).to(device)
+    theirs_state_dict = theirs_model.state_dict()
+    state_dict = {}
+    copy_weights_hf_llama(ours_config, {}, state_dict, theirs_state_dict)
+    ours_model = GPT(ours_config).to(device)
+    ours_model.load_state_dict(state_dict)
+
+    # test end to end
+    x = torch.tensor([[9856, 23, 491, 1536, 304]], dtype=torch.int32, device=device)
+    assert x.size(1) == T
+    ours_y = ours_model(x)
+    theirs_y = theirs_model(x)["logits"].to(dtype)  # HF converts logits to float
+    torch.testing.assert_close(ours_y, theirs_y)
+
+
 @RunIf(dynamo=True)
 @torch.inference_mode()
 def test_model_compile():

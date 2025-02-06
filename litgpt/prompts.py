@@ -340,7 +340,13 @@ class Gemma(PromptStyle):
 class OLMo(PromptStyle):
     def apply(self, prompt: str, **kwargs: str) -> str:
         return f"<|endoftext|><|user|>\n{prompt}\n<|assistant|>\n"
-    
+
+
+class OpenCoder(PromptStyle):
+    def apply(self, prompt: str, **kwargs: str) -> str:
+        system_message = "You are OpenCoder, created by OpenCoder Team."
+        return f"<|im_start|>system\n{system_message}<|im_end|>\n<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+
 
 class ChatML(PromptStyle):
     def __init__(self, system_message: str):
@@ -394,6 +400,7 @@ prompt_styles: Dict[str, Type[PromptStyle]] = {
     "gemma": Gemma,
     "llama3": Llama3,
     "olmo": OLMo,
+    "opencoder": OpenCoder,
     "qwen2.5": Qwen2_5,
     "qwen2.5-math": Qwen2_5_Math,
     "qwq": QwQ,
@@ -443,6 +450,8 @@ def model_name_to_prompt_style(model_name: str) -> PromptStyle:
         return Gemma()
     if re.search(r"OLMo.*-hf", model_name):
         return OLMo()
+    if re.search(r"OpenCoder.*-Instruct", model_name):
+        return OpenCoder()
     if re.search(r"Qwen2\.5-Math-.*", model_name):
         return Qwen2_5_Math()
     if re.search(r"Qwen2\.5-.*", model_name):
